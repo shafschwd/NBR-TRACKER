@@ -78,11 +78,13 @@ else {
   }
   const db = {collection: col => ({
     onSnapshot(cb, onErr){
-      return onSnapshot(collection(fs, col), qs => {
+      return onSnapshot(collection(fs, col), async qs => {
         const items = {};
         qs.forEach(d => Object.assign(items, (d.data() || {}).items || {}));
         empty[col] = Object.keys(items).length === 0;
-        cb({docs: asDocs(col, empty[col] ? (SEED[col] || {}) : items)});
+        await dataReady;
+        const merged = empty[col] ? (SEED[col] || {}) : Object.assign({}, SEED[col] || {}, items);
+        cb({docs: asDocs(col, merged)});
         renderAuth();
       }, e => { if (onErr) onErr(e); });
     },
@@ -144,11 +146,24 @@ else {
       return "admin";
     } catch(e){ return null; }
   }
+  const doSync = async () => {
+    await dataReady;
+    for (const cName of ["units", "stages"]){
+      const groups = {};
+      Object.entries(SEED[cName] || {}).forEach(([id, v]) => { const c = chunkOf(cName, id); (groups[c] = groups[c] || {})[id] = strip(cName, v); });
+      for (const [c, items] of Object.entries(groups)) await setDoc(doc(fs, cName, c), {items}, {merge: true});
+    }
+  };
+  window.__BLAZING_SYNC__ = doSync;
+
   onAuthStateChanged(auth, async u => {
     role = u ? await findRole(u) : null;
     if (firstAuth){ firstAuth = false; resolveRole(role); }
     else if (window.__BLAZING_SETROLE__) window.__BLAZING_SETROLE__(!!role);
     renderAuth();
+    if (role === "editor" || role === "admin"){
+      doSync().catch(() => {});
+    }
   });
 
   /* ---------- Sign-in bar and editor management ---------- */
@@ -175,6 +190,20 @@ else {
           catch(e){ alert(e && e.code === "auth/requires-recent-login" ? "For safety, sign out and back in, then try again." : "Couldn't change the password. Try again."); }
         });
         bar.append(pw);
+      }
+      if (role === "editor" || role === "admin"){
+        const sb = el("button", "notes-btn primary", "Sync starting data"); sb.type = "button";
+        sb.title = "Push bundled Ninja Road and stage data to Firebase";
+        sb.addEventListener("click", async () => {
+          if (!confirm("Sync starting data (all 45 Ninja Road seasons) to Firebase?")) return;
+          sb.disabled = true; sb.textContent = "Syncing…";
+          try {
+            await doSync();
+            sb.textContent = "Synced ✓";
+            setTimeout(() => { sb.disabled = false; sb.textContent = "Sync starting data"; }, 3000);
+          } catch(e){ sb.disabled = false; sb.textContent = "Sync failed. Try again"; alert("Sync failed: " + (e.message || e)); }
+        });
+        bar.append(sb);
       }
       if (role === "admin"){ const eb = el("button", "notes-btn", "Editors"); eb.type = "button"; eb.addEventListener("click", openEditors); bar.append(eb); }
       const so = el("button", "notes-btn auth-out", "Sign out"); so.type = "button";
@@ -288,22 +317,21 @@ else {
       }
     });
     const seedBox = el("div", "ed-seed"); seedBox.id = "ed-seed";
-    seedBox.append(el("h3", null, "Starting data"), el("p", "ed-note", "The database is empty, so the site is showing the bundled starting data. Load it into the database once so edits can be saved."));
-    const sb = el("button", "btn primary", "Load starting data"); sb.type = "button";
+    seedBox.append(el("h3", null, "Starting data"), el("p", "ed-note", "Load or sync starting data into the database so all 45 Ninja Road seasons and stage updates are saved in Firebase."));
+    const sb = el("button", "btn primary", "Load / Sync starting data"); sb.type = "button";
     sb.addEventListener("click", async () => {
-      if (!confirm("Load the starting data into the database? Only do this once, on an empty database.")) return;
-      sb.disabled = true; sb.textContent = "Loading…";
+      if (!confirm("Load or sync starting data into the database?")) return;
+      sb.disabled = true; sb.textContent = "Syncing…";
       try {
         for (const col of ["units", "stages"]){
-          if (empty[col] === false) continue;
           const groups = {};
           Object.entries(SEED[col] || {}).forEach(([id, v]) => { const c = chunkOf(col, id); (groups[c] = groups[c] || {})[id] = strip(col, v); });
-          for (const [c, items] of Object.entries(groups)) await setDoc(doc(fs, col, c), {items});
+          for (const [c, items] of Object.entries(groups)) await setDoc(doc(fs, col, c), {items}, {merge: true});
         }
-        sb.textContent = "Done"; seedBox.hidden = true;
-      } catch(e){ sb.disabled = false; sb.textContent = "Couldn't load it. Try again"; }
+        sb.textContent = "Done ✓";
+      } catch(e){ sb.disabled = false; sb.textContent = "Couldn't sync. Try again"; }
     });
-    seedBox.append(sb); seedBox.hidden = !(empty.units || empty.stages);
+    seedBox.append(sb);
     const bk = el("div", "ed-seed");
     bk.append(el("h3", null, "Backup"), el("p", "ed-note", "Download everything in the database (results, notes, stages, editors) as one file to keep somewhere safe."));
     const bb = el("button", "btn", "Download backup"); bb.type = "button";

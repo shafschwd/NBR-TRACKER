@@ -722,6 +722,7 @@ a.chip{text-decoration:none}
       <div class="toolbar">
         <input class="search" id="sg-q" type="search" placeholder="Search events and stages" aria-label="Search stages">
         <div class="chips" id="sg-st" role="group" aria-label="Filter by result"></div>
+        <button type="button" class="btn primary" id="sg-sync-btn" style="height:34px;padding:0 14px;border-radius:999px;font-size:12px;white-space:nowrap;" hidden>Sync 45 Ninja Roads</button>
       </div>
       <div class="chips" id="sg-cat" role="group" aria-label="Filter by type"></div>
       <div class="chips" id="sg-sub" role="group" aria-label="Filter Emergency Missions" hidden></div>
@@ -884,6 +885,21 @@ a.chip{text-decoration:none}
     form.hidden = !ed;
     $("#viewonly").hidden = canWrite !== false;
     bulkBtn.hidden = !(assets && ed);
+    const syncBtn = $("#sg-sync-btn");
+    if (syncBtn){
+      syncBtn.hidden = !ed;
+      if (!syncBtn._bound){
+        syncBtn._bound = true;
+        syncBtn.addEventListener("click", async () => {
+          syncBtn.disabled = true; syncBtn.textContent = "Syncing…";
+          try {
+            if (window.__BLAZING_SYNC__) await window.__BLAZING_SYNC__();
+            syncBtn.textContent = "Synced ✓";
+            setTimeout(() => { syncBtn.disabled = false; syncBtn.textContent = "Sync 45 Ninja Roads"; }, 3000);
+          } catch(e){ syncBtn.disabled = false; syncBtn.textContent = "Sync failed"; alert("Sync failed: " + (e.message || e)); }
+        });
+      }
+    }
     updatePasteHint();
     render();
     if (curTab === "stages") sgRender();
@@ -2516,6 +2532,6 @@ a.chip{text-decoration:none}
 })();
 </script>
 
-<script type="module" src="site.js"></script>
+<script type="module" src="site.js?v=1.3"></script>
 </body>
 </html>
